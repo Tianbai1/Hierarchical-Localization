@@ -50,6 +50,35 @@ def import_images(
             options=options,
         )
 
+def import_images_pandaset_multicam(
+    database_path: Path,
+    camera_mode: pycolmap.CameraMode,
+    image_list: Optional[List[str]] = None,
+    cam_intrinsic_list: Optional[List[str]] = None,
+    cam_extrinsic_list: Optional[List[str]] = None
+):
+    logger.info("Importing images into the database...")
+    db = COLMAPDatabase.connect(database_path)
+    # For each camera
+    cams = ['front_camera', 'front_left_camera', 'front_right_camera']
+    for i, cam in enumerate(cams):
+        # Add the camera to the database
+        camera_id = db.add_camera(1, 1920, 1080, 
+                                  [cam_intrinsic_list[i]["fx"], 
+                                   cam_intrinsic_list[i]["fy"], 
+                                   cam_intrinsic_list[i]["cx"], 
+                                   cam_intrinsic_list[i]["cy"]],
+                                   prior_focal_length=True)
+        # For each image taken with this camera
+        for j, image_file_name in enumerate(image_list):
+            # Add the image to the database, associating it with this camera
+            # db.add_image(image_name, camera_id, prior_q, prior_t)
+            if cam in image_file_name:
+                db.add_image(image_file_name, camera_id)
+
+    db.commit()
+    db.close()
+
 def import_images_nuscenes_multicam(
     database_path: Path,
     camera_mode: pycolmap.CameraMode,
@@ -63,7 +92,11 @@ def import_images_nuscenes_multicam(
     cams = ['CAM_FRONT__', 'CAM_FRONT_LEFT__', 'CAM_FRONT_RIGHT__']
     for i, cam in enumerate(cams):
         # Add the camera to the database
-        camera_id = db.add_camera(0, 1600, 900, [cam_intrinsic_list[i][0][0], 1600 / 2, 900 / 2])
+        camera_id = db.add_camera(1, 1600, 900, 
+                                  [cam_intrinsic_list[i][0][0], 
+                                   cam_intrinsic_list[i][1][1], 
+                                   cam_intrinsic_list[i][0][2], 
+                                   cam_intrinsic_list[i][1][2]])
         # For each image taken with this camera
         for j, image_file_name in enumerate(image_list):
             # Add the image to the database, associating it with this camera
@@ -87,7 +120,11 @@ def import_images_kitti_stereocam(
     cams = ['left', 'right']
     for i, cam in enumerate(cams):
         # Add the camera to the database
-        camera_id = db.add_camera(0, 1241, 376, [cam_intrinsic_list[0][0], 1241 / 2, 376 / 2])
+        camera_id = db.add_camera(1, 1241, 376, 
+                                  [cam_intrinsic_list[i][0][0], 
+                                   cam_intrinsic_list[i][1][1],
+                                   cam_intrinsic_list[i][0][2], 
+                                   cam_intrinsic_list[i][1][2]])
         # For each image taken with this camera
         for j, image_file_name in enumerate(image_list):
             # Add the image to the database, associating it with this camera
@@ -220,7 +257,8 @@ def main_multicam(
     database = sfm_dir / "database.db"
 
     create_empty_db(database)
-    import_images_nuscenes_multicam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
+    import_images_pandaset_multicam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
+    # import_images_nuscenes_multicam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
     # import_images_kitti_stereocam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
     # import_images(image_dir, database, camera_mode, image_list, image_options)
     image_ids = get_image_ids(database)
