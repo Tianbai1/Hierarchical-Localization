@@ -50,30 +50,28 @@ def import_images(
             options=options,
         )
 
-def import_images_pandaset_multicam(
+def import_images_multicam(
     database_path: Path,
     camera_mode: pycolmap.CameraMode,
     image_list: Optional[List[str]] = None,
-    cam_intrinsic_list: Optional[List[str]] = None,
-    cam_extrinsic_list: Optional[List[str]] = None
+    cameras: Optional[List[Dict[str, Any]]] = None,
 ):
     logger.info("Importing images into the database...")
     db = COLMAPDatabase.connect(database_path)
     # For each camera
-    cams = ['front_camera', 'front_left_camera', 'front_right_camera']
-    for i, cam in enumerate(cams):
+    for i, cam in enumerate(cameras):
         # Add the camera to the database
-        camera_id = db.add_camera(1, 1920, 1080, 
-                                  [cam_intrinsic_list[i]["fx"], 
-                                   cam_intrinsic_list[i]["fy"], 
-                                   cam_intrinsic_list[i]["cx"], 
-                                   cam_intrinsic_list[i]["cy"]],
+        camera_id = db.add_camera(1, cam["width"], cam["height"], 
+                                  [cam["params"]["fx"], 
+                                   cam["params"]["fy"], 
+                                   cam["params"]["cx"], 
+                                   cam["params"]["cy"]],
                                    prior_focal_length=True)
         # For each image taken with this camera
-        for j, image_file_name in enumerate(image_list):
+        for image_file_name in image_list:
             # Add the image to the database, associating it with this camera
             # db.add_image(image_name, camera_id, prior_q, prior_t)
-            if cam in image_file_name:
+            if cam["name"] in image_file_name:
                 db.add_image(image_file_name, camera_id)
 
     db.commit()
@@ -199,8 +197,10 @@ def main(
     skip_geometric_verification: bool = False,
     min_match_score: Optional[float] = None,
     image_list: Optional[List[str]] = None,
+    cameras: Optional[List[Dict[str, Any]]] = None,
     image_options: Optional[Dict[str, Any]] = None,
     mapper_options: Optional[Dict[str, Any]] = None,
+    apply_glomap: bool = False
 ) -> pycolmap.Reconstruction:
     assert features.exists(), features
     assert pairs.exists(), pairs
@@ -210,7 +210,10 @@ def main(
     database = sfm_dir / "database.db"
 
     create_empty_db(database)
-    import_images(image_dir, database, camera_mode, image_list, image_options)
+    if len(cameras) > 1 :
+        import_images_multicam(database, camera_mode, image_list, cameras)
+    else :
+        import_images(image_dir, database, camera_mode, image_list, image_options)
     image_ids = get_image_ids(database)
     import_features(image_ids, database, features)
     import_matches(
@@ -221,68 +224,25 @@ def main(
         min_match_score,
         skip_geometric_verification,
     )
+
     if not skip_geometric_verification:
         estimation_and_geometric_verification(database, pairs, verbose)
-    reconstruction = run_reconstruction(
-        sfm_dir, database, image_dir, verbose, mapper_options
-    )
-    if reconstruction is not None:
+
+    if apply_glomap :
         logger.info(
-            f"Reconstruction statistics:\n{reconstruction.summary()}"
-            + f"\n\tnum_input_images = {len(image_ids)}"
+                f"Colmap reconstruction is skipped. Will apply glomap for reconstruction..."
+            )
+        return None
+    else :
+        reconstruction = run_reconstruction(
+            sfm_dir, database, image_dir, verbose, mapper_options
         )
-    return reconstruction
-
-def main_multicam(
-    sfm_dir: Path,
-    image_dir: Path,
-    pairs: Path,
-    features: Path,
-    matches: Path,
-    camera_mode: pycolmap.CameraMode = pycolmap.CameraMode.AUTO,
-    verbose: bool = False,
-    skip_geometric_verification: bool = False,
-    min_match_score: Optional[float] = None,
-    image_list: Optional[List[str]] = None,
-    cam_intrinsic_list: Optional[List[str]] = None,
-    cam_extrinsic_list: Optional[List[str]] = None,
-    image_options: Optional[Dict[str, Any]] = None,
-    mapper_options: Optional[Dict[str, Any]] = None,
-) -> pycolmap.Reconstruction:
-    assert features.exists(), features
-    assert pairs.exists(), pairs
-    assert matches.exists(), matches
-
-    sfm_dir.mkdir(parents=True, exist_ok=True)
-    database = sfm_dir / "database.db"
-
-    create_empty_db(database)
-    import_images_pandaset_multicam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
-    # import_images_nuscenes_multicam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
-    # import_images_kitti_stereocam(database, camera_mode, image_list, cam_intrinsic_list, cam_extrinsic_list)
-    # import_images(image_dir, database, camera_mode, image_list, image_options)
-    image_ids = get_image_ids(database)
-    import_features(image_ids, database, features)
-    import_matches(
-        image_ids,
-        database,
-        pairs,
-        matches,
-        min_match_score,
-        skip_geometric_verification,
-    )
-    if not skip_geometric_verification:
-        estimation_and_geometric_verification(database, pairs, verbose)
-    reconstruction = run_reconstruction(
-        sfm_dir, database, image_dir, verbose, mapper_options
-    )
-    if reconstruction is not None:
-        logger.info(
-            f"Reconstruction statistics:\n{reconstruction.summary()}"
-            + f"\n\tnum_input_images = {len(image_ids)}"
-        )
-    return reconstruction
-
+        if reconstruction is not None:
+            logger.info(
+                f"Reconstruction statistics:\n{reconstruction.summary()}"
+                + f"\n\tnum_input_images = {len(image_ids)}"
+            )
+        return reconstruction
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
